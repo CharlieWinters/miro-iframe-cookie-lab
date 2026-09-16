@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Embed ↔ app frame channel probe</title>
+<style>
+  :root { color-scheme: dark; --bg:#0f1419; --card:#18212e; --line:#2a3646; --text:#e6edf3;
+          --muted:#8b9cb3; --ok:#3fb950; --bad:#f85149; --warn:#d29922; --accent:#4c9aff; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; min-height:100%; background:var(--bg); color:var(--text);
+              font:13px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding:14px; }
+  h1 { font-size:15px; margin:0 0 2px; }
+  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted);
+       margin:16px 0 6px; font-weight:600; }
+  p.sub { color:var(--muted); font-size:12px; margin:0 0 12px; }
+  .box { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:11px; color:var(--muted); font-weight:600; padding:0 8px 4px 0;
+       border-bottom:1px solid var(--line); }
+  td { padding:5px 8px 5px 0; vertical-align:top; border-bottom:1px solid rgba(42,54,70,.5); }
+  td.k { color:var(--muted); width:52%; }
+  td.mono, .mono { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11.5px;
+                   word-break:break-all; }
+  .pill { display:inline-block; padding:1px 7px; border-radius:20px; font-size:11px; font-weight:600; }
+  .pill.ok{background:rgba(63,185,80,.15);color:var(--ok)}
+  .pill.bad{background:rgba(248,81,73,.15);color:var(--bad)}
+  .pill.warn{background:rgba(210,153,34,.15);color:var(--warn)}
+  .pill.idle{background:rgba(139,156,179,.15);color:var(--muted)}
+  .verdict { border-radius:8px; padding:11px 13px; font-weight:600; margin-bottom:12px;
+             border:1px solid var(--line); background:#1f2937; color:var(--muted); }
+  .verdict.yes { background:rgba(63,185,80,.12); color:var(--ok); border-color:var(--ok); }
+  .verdict.no  { background:rgba(248,81,73,.12); color:var(--bad); border-color:var(--bad); }
+  .count { font-size:30px; font-weight:700; color:var(--accent); line-height:1.05; }
+  .item { border-left:2px solid var(--accent); padding:5px 0 5px 10px; margin:9px 0; }
+  .item .meta { color:var(--muted); font-size:11px; }
+  .item .cap { color:var(--accent); font-weight:600; font-family:ui-monospace,monospace; }
+  .item .text { white-space:pre-wrap; margin-top:3px; }
+  #log { max-height:150px; overflow-y:auto; font-family:ui-monospace,monospace; font-size:11px;
+         color:var(--muted); }
+  #log div { padding:1px 0; }
+  #log div.ok{color:#7ee2a8} #log div.bad{color:#ff9c94}
+</style>
+</head>
+<body>
+<h1>Embed ↔ app frame channel</h1>
+<p class="sub">
+  This page is a board <strong>embed</strong>: an iframe with no Miro SDK. It is trying to reach one
+  of the app's own iframes, which do have the SDK, and read the board through it.
+</p>
+
+<div id="verdict" class="verdict">Trying all four channels…</div>
+
+<h2>Channel matrix</h2>
+<div class="box">
+  <table>
+    <thead><tr><th>Channel</th><th>Cross-origin?</th><th>Result</th><th>Answered by</th></tr></thead>
+    <tbody id="matrix"></tbody>
+  </table>
+</div>
+
+<h2>Board data that came back</h2>
+<div class="box" id="payload"><span style="color:var(--muted)">Nothing yet.</span></div>
+
+<h2>This embed's own context</h2>
+<div class="box"><table id="ctx"></table></div>
+
+<h2>Frame tree</h2>
+<div class="box"><table id="frames"></table></div>
+
+<h2>Event log</h2>
+<div class="box" id="log"></div>
+
+<script>
+(function () {
+  var params  = new URLSearchParams(location.search);
+  var probeId = params.get('probeId') || '';
+  var token   = params.get('token')   || '';
+  // Exact origins only, never '*': a wildcard would hand the token to every
+  // other frame on the board, including other apps' iframes.
+  var appOrigins = (params.get('appOrigins') || location.origin)
+    .split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+
+  var BC_NAME = 'clab-probe';
+  var LS_REQ  = 'clab-probe:req';
+  var LS_RESP = 'clab-probe:resp';
+  var WORKER_URL = './src/probe-sharedworker.js';
+  var M = {
+    hello:'clab-probe:hello', here:'clab-probe:here', read:'clab-probe:read-connected',
+    connected:'clab-probe:connected', error:'clab-probe:error', appReady:'clab-probe:app-ready'
+  };
+
+  var t0 = Date.now();
+  var logEl = document.getElementById('log');
+  function log(msg, cls) {
+    var d = document.createElement('div');
+    if (cls) d.className = cls;
+    d.textContent = '+' + String(Date.now() - t0).padStart(5, ' ') + 'ms  ' + msg;
+    logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>]/g, function (c) {
+      return ({ '&':'&amp;','<':'&lt;','>':'&gt;' })[c];
+    });
+  }
+  function rows(id, pairs) {
+    var t = document.getElementById(id); t.innerHTML = '';
+    pairs.forEach(function (p) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td class="k">' + esc(p[0]) + '</td><td class="mono">' +
+        (p[2] ? '<span class="pill ' + p[2] + '">' + esc(p[1]) + '</span>' : esc(p[1])) + '</td>';
+      t.appendChild(tr);
+    });
+  }
+  function probe(fn) {
+    try { return fn() ? 'yes' : 'no'; } catch (e) { return 'threw ' + (e && e.name || 'Error'); }
+  }
+
+  /* ---- channel state ---------------------------------------------------- */
+  var CHANNELS = [
+    { key:'postMessage',  label:'postMessage (frame walk)', cross:'yes', status:'idle', by:'—' },
+    { key:'broadcast',    label:'BroadcastChannel',         cross:'no',  status:'idle', by:'—' },
+    { key:'localstorage', label:'localStorage + storage evt', cross:'no', status:'idle', by:'—' },
+    { key:'sharedworker', label:'SharedWorker',             cross:'no',  status:'idle', by:'—' }
+  ];
+  var byKey = {}; CHANNELS.forEach(function (c) { byKey[c.key] = c; });
+
+  function renderMatrix() {
+    var tb = document.getElementById('matrix'); tb.innerHTML = '';
+    CHANNELS.forEach(function (c) {
+      var kind = c.status === 'answered' ? 'ok'
+               : c.status === 'blocked' ? 'bad'
+               : c.status === 'sent' ? 'warn' : 'idle';
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + esc(c.label) + '</td>' +
+        '<td class="mono">' + c.cross + '</td>' +
+        '<td><span class="pill ' + kind + '">' + esc(c.status) + '</span></td>' +
+        '<td class="mono">' + esc(c.by) + '</td>';
+      tb.appendChild(tr);
+    });
+  }
+  function mark(key, status, by) {
+    var c = byKey[key]; if (!c) return;
+    if (c.status === 'answered' && status !== 'answered') return;
+    c.status = status; if (by) c.by = by;
+    renderMatrix();
+  }
+
+  /* ---- own context ------------------------------------------------------ */
+  var isOpaque = (window.origin === 'null' || window.origin === undefined);
+  var depth = 0;
+  try { var w = window; while (w !== w.parent && depth < 40) { w = w.parent; depth++; } } catch (e) {}
+
+  rows('ctx', [
+    ['location.origin', String(window.origin)],
+    ['opaque origin (sandboxed, no allow-same-origin)', isOpaque ? 'YES' : 'no', isOpaque ? 'bad' : 'ok'],
+    ['same origin as the app?', appOrigins.indexOf(String(window.origin)) !== -1 ? 'yes' : 'no'],
+    ['localStorage readable', probe(function () { localStorage.getItem('x'); return true; })],
+    ['BroadcastChannel constructible', probe(function () { new BroadcastChannel('probe-x').close(); return true; })],
+    ['SharedWorker constructor present', probe(function () { return typeof SharedWorker === 'function'; })],
+    ['nesting depth below top', String(depth)],
+    ['app origins targeted', appOrigins.join('  ')]
+  ]);
+
+  /* ---- frame tree ------------------------------------------------------- */
+  var topReachable = true, topLength = null;
+  try { topLength = window.top.length; } catch (e) { topReachable = false; }
+
+  var targets = [];
+  (function collect(win, d) {
+    if (d > 8 || targets.length > 200) return;
+    if (win !== window) targets.push(win);
+    var n = 0;
+    try { n = win.length; } catch (e) { return; }
+    for (var i = 0; i < n; i++) { try { collect(win[i], d + 1); } catch (e) {} }
+  })(topReachable ? window.top : window.parent, 0);
+
+  rows('frames', [
+    ['window.top reachable', topReachable ? 'yes' : 'no', topReachable ? 'ok' : 'bad'],
+    ['window.top.length', topLength === null ? 'unreadable' : String(topLength)],
+    ['frames discovered (excluding self)', String(targets.length), targets.length ? 'ok' : 'bad']
+  ]);
+  log(targets.length + ' other frames discovered; top ' + (topReachable ? 'reachable' : 'UNREACHABLE'));
+
+  /* ---- payload rendering ------------------------------------------------ */
+  function renderPayload(d) {
+    var el = document.getElementById('payload');
+    el.innerHTML =
+      '<div class="count">' + d.count + '</div>' +
+      '<div style="color:var(--muted);font-size:12px">items connected to this embed by a line connector</div>';
+    var info = document.createElement('table');
+    info.style.marginTop = '10px';
+    [['answered over', d.via],
+     ['answered by surface', d.surface],
+     ['app origin', d.appOrigin || '?'],
+     ['board', (d.boardName || '?') + '  (' + (d.boardId || '?') + ')'],
+     ['embed widget found', d.embedWidgetFound ? 'yes — ' + d.embedWidgetId : 'NO']
+    ].forEach(function (p) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td class="k">' + esc(p[0]) + '</td><td class="mono">' + esc(p[1]) + '</td>';
+      info.appendChild(tr);
+    });
+    el.appendChild(info);
+
+    (d.items || []).forEach(function (it) {
+      var div = document.createElement('div');
+      div.className = 'item';
+      div.innerHTML =
+        '<div class="meta">' + esc(it.type) +
+          (it.connectorCaption
+            ? ' · connector captioned <span class="cap">' + esc(it.connectorCaption) + '</span>'
+            : ' · connector has no caption') + '</div>' +
+        '<div class="text">' + (it.text
+            ? esc(it.text)
+            : '<span style="color:var(--muted)">no readable text → ' + esc(it.link || 'no link') + '</span>') +
+        '</div>';
+      el.appendChild(div);
+    });
+  }
+
+  /* ---- shared response handling ----------------------------------------- */
+  var reached = false, gotData = false;
+  var verdictEl = document.getElementById('verdict');
+  var senders = {}; // via -> function(msg)
+
+  function onResponse(d, via, fromLabel) {
+    if (!d || typeof d !== 'object') return;
+    if (token && d.token !== token) return;
+
+    if (d.type === M.appReady) {
+      log('app announced itself (' + via + ')', 'ok');
+      sendHello();
+      return;
+    }
+    if (d.type === M.here) {
+      mark(via, 'answered', d.surface || fromLabel || '?');
+      log('ANSWER on ' + via + ' from ' + (d.surface || '?'), 'ok');
+      if (!reached) {
+        reached = true;
+        verdictEl.className = 'verdict yes';
+        verdictEl.textContent = '✅ Reached the app iframe over ' + via + '. Asking it to read the board…';
+      }
+      if (senders[via]) {
+        senders[via]({ type: M.read, v: 1, probeId: probeId, token: token });
+      }
+      return;
+    }
+    if (d.type === M.connected) {
+      mark(via, 'answered', d.surface || '?');
+      if (!gotData) {
+        gotData = true;
+        verdictEl.className = 'verdict yes';
+        verdictEl.textContent = '✅ Works. Board data crossed from the app iframe into this embed over ' + via + '.';
+        renderPayload(d);
+      }
+      log('board data over ' + via + ': ' + d.count + ' connected item(s)', 'ok');
+      return;
+    }
+    if (d.type === M.error) {
+      log('app error (' + via + '): ' + d.error, 'bad');
+      if (!gotData) document.getElementById('payload').textContent = 'App error: ' + d.error;
+    }
+  }
+
+  /* ---- channel 1: postMessage ------------------------------------------- */
+  senders.postMessage = function (msg) {
+    var sent = 0;
+    targets.forEach(function (win) {
+      appOrigins.forEach(function (origin) {
+        try { win.postMessage(msg, origin); sent++; } catch (e) {}
+      });
+    });
+    if (msg.type === M.hello) mark('postMessage', 'sent');
+    log('postMessage ' + msg.type.split(':')[1] + ' → ' + sent + ' posts');
+  };
+  window.addEventListener('message', function (event) {
+    onResponse(event.data, 'postMessage', event.origin);
+  });
+
+  /* ---- channel 2: BroadcastChannel -------------------------------------- */
+  var bc = null;
+  try {
+    bc = new BroadcastChannel(BC_NAME);
+    bc.addEventListener('message', function (event) { onResponse(event.data, 'broadcast'); });
+    senders.broadcast = function (msg) { bc.postMessage(msg); mark('broadcast', 'sent'); };
+  } catch (e) {
+    mark('broadcast', 'blocked', e.name);
+    log('BroadcastChannel unavailable: ' + e.name, 'bad');
+  }
+
+  /* ---- channel 3: localStorage ------------------------------------------ */
+  try {
+    localStorage.getItem('probe-x');
+    window.addEventListener('storage', function (event) {
+      if (event.key !== LS_RESP || !event.newValue) return;
+      var d = null;
+      try { d = JSON.parse(event.newValue); } catch (e) { return; }
+      onResponse(d, 'localstorage');
+    });
+    senders.localstorage = function (msg) {
+      try {
+        localStorage.setItem(LS_REQ, JSON.stringify(Object.assign({}, msg, { nonce: Math.random() })));
+        mark('localstorage', 'sent');
+      } catch (e) { mark('localstorage', 'blocked', e.name); }
+    };
+  } catch (e) {
+    mark('localstorage', 'blocked', e.name);
+    log('localStorage unavailable: ' + e.name, 'bad');
+  }
+
+  /* ---- channel 4: SharedWorker ------------------------------------------ */
+  try {
+    var worker = new SharedWorker(new URL(WORKER_URL, location.href), { name: BC_NAME });
+    worker.port.start();
+    worker.port.addEventListener('message', function (event) {
+      if (event.data && event.data.type === 'clab-probe:worker-ready') {
+        log('shared worker connected (' + event.data.ports + ' ports)');
+        return;
+      }
+      onResponse(event.data, 'sharedworker');
+    });
+    senders.sharedworker = function (msg) { worker.port.postMessage(msg); mark('sharedworker', 'sent'); };
+  } catch (e) {
+    mark('sharedworker', 'blocked', e.name);
+    log('SharedWorker unavailable: ' + e.name, 'bad');
+  }
+
+  /* ---- drive ------------------------------------------------------------ */
+  function sendHello() {
+    var msg = { type: M.hello, v: 1, probeId: probeId, token: token };
+    Object.keys(senders).forEach(function (k) {
+      if (senders[k]) { try { senders[k](msg); } catch (e) {} }
+    });
+  }
+
+  renderMatrix();
+  var attempts = 0;
+  sendHello(); attempts++;
+  var iv = setInterval(function () {
+    if (gotData || attempts >= 15) {
+      clearInterval(iv);
+      if (!gotData) {
+        verdictEl.className = 'verdict no';
+        verdictEl.textContent = reached
+          ? '⚠️ Reached the app, but no board data came back. See the log.'
+          : '❌ No app iframe answered on any channel after ' + attempts +
+            ' attempts. Either no app surface is open on this board, or every channel is blocked.';
+        log('stopped after ' + attempts + ' attempts', 'bad');
+      }
+      return;
+    }
+    sendHello(); attempts++;
+  }, 1000);
+})();
+</script>
+</body>
+</html>

@@ -18,6 +18,12 @@
   </main>
 
   <script src="https://miro.com/app/static/sdk/v2/miro.js"></script>
+  <!-- Card 6's responder. Runs in the headless iframe so a board embed can reach
+       the SDK even when the lab panel is closed. -->
+  <script type="module">
+    import { initResponder } from './src/frameprobe.js';
+    try { initResponder(); } catch (e) { console.warn('[probe] responder failed:', e); }
+  </script>
   <script>
     const status = document.getElementById('status');
 

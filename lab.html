@@ -126,6 +126,27 @@
           <p class="note small" id="export-note"></p>
         </div>
       </details>
+
+      <details class="card">
+        <summary><span class="num">6</span> Embed &harr; app frame channel</summary>
+        <div class="card-body">
+          <p class="muted small">
+            Drops a live <strong>embed</strong> on the board (an iframe with no Miro SDK) with three
+            items connected to it, then lets that embed try to reach this app's iframes on four
+            channels and read the board back. Only <code>postMessage</code> would also work if the
+            embed were on a different origin; the other three need same-origin plus a shared
+            storage partition.
+          </p>
+          <div class="row-actions">
+            <button id="btn-create-probe">Create probe embed + connected items</button>
+          </div>
+          <p class="note small" id="probe-note">
+            The responder runs in every app surface, so the embed reports which one answered &mdash;
+            that tells you whether the headless iframe alone is enough or the panel must stay open.
+          </p>
+          <div class="log" id="probe-log"></div>
+        </div>
+      </details>
     </div>
   </div>
 

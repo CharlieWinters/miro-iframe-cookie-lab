@@ -13,6 +13,7 @@ import * as bridge from './authbridge.js';
 import * as miroSdk from './miro.js';
 import * as localstore from './localstore.js';
 import { createViewer } from './viewer3d.js';
+import * as frameprobe from './frameprobe.js';
 
 const DEFAULT_TEXT = 'HELLO MIRO';
 
@@ -496,6 +497,10 @@ async function init() {
   $('#text-input').placeholder = DEFAULT_TEXT;
   renderViewerText();
 
+  // Card 6: answer probe pings from the embed, and wire its fixture button.
+  frameprobe.initResponder();
+  wireFrameProbeCard();
+
   renderCookieTable();
   renderPartitionReport();
   renderFrameCard();
@@ -657,3 +662,30 @@ init().catch((err) => {
   document.body.prepend(el('div', { class: 'banner bad' }, 'Lab failed to start: ' + err.message));
   console.error(err);
 });
+
+
+/* ------------------------------------------------- card 6: embed frame channel */
+
+/**
+ * The button only builds the fixture. Everything measured lives in the embed
+ * itself (embed-probe.html) — it has to, because the whole question is what that
+ * frame can reach from where it sits.
+ */
+function wireFrameProbeCard() {
+  const btn = $('#btn-create-probe');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    logTo('#probe-log', 'Creating embed and three connected items…');
+    try {
+      const result = await frameprobe.createProbeFixture();
+      logTo('#probe-log', `Created. probeId ${result.probeId.slice(0, 8)}… — watch the embed on the board.`, 'ok');
+      $('#probe-note').textContent =
+        'Fixture is on the board. The embed fills in its own channel matrix within a few seconds.';
+    } catch (e) {
+      logTo('#probe-log', 'Failed: ' + e.message, 'bad');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}

@@ -30,6 +30,7 @@ experiment.
 | 3. Authenticating from inside the board | The popup → `postMessage` → in-frame cookie handshake, plus the Storage Access API alternative |
 | 4. Framing policy | What `frame-ancestors` does to the panel, and what it costs to get it wrong |
 | 5. Environment & export | Raw diagnostics, a findings JSON, and a button that writes the results onto the board |
+| 6. Embed ↔ app frame channel | Whether a board *embed* (an iframe with no Miro SDK) can reach one of the app's own iframes and read board data back — measured across four channels |
 
 ## Install it on a board
 
