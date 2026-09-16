@@ -500,6 +500,7 @@ async function init() {
   // Card 6: answer probe pings from the embed, and wire its fixture button.
   frameprobe.initResponder();
   wireFrameProbeCard();
+  wireLocalhostModalTest();
 
   renderCookieTable();
   renderPartitionReport();
@@ -686,6 +687,38 @@ function wireFrameProbeCard() {
       logTo('#probe-log', 'Failed: ' + e.message, 'bad');
     } finally {
       btn.disabled = false;
+    }
+  });
+}
+
+
+/* ------------------------------ can a Pages app open a localhost modal? */
+
+/**
+ * Decides a real architectural question, so it is measured rather than assumed:
+ * Miro app surfaces are normally addressed as URLs relative to the app's
+ * `sdkUri`. If an absolute cross-origin `http://localhost` URL loads as a modal
+ * anyway, then ONE Pages-hosted app can both serve every board viewer and reach
+ * a developer's local server — the modal document is localhost-origin, so its
+ * own fetches and websockets are loopback-to-loopback and Local Network Access
+ * never enters into it.
+ *
+ * openModal resolving is not proof on its own: a refused or blocked URL can
+ * still open an empty modal. The modal has to be looked at.
+ */
+function wireLocalhostModalTest() {
+  const btn = $('#btn-open-any-modal');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const raw = $('#modal-url').value.trim() || $('#modal-url').placeholder;
+    logTo('#modal-log', `openModal("${raw}") …`);
+    try {
+      const { waitForClose } = await miroSdk.openModal(raw);
+      logTo('#modal-log', 'openModal resolved — now LOOK at the modal: content = supported, blank = refused.', 'ok');
+      const result = await waitForClose();
+      logTo('#modal-log', 'modal closed' + (result ? ' with ' + JSON.stringify(result) : ''));
+    } catch (e) {
+      logTo('#modal-log', 'openModal threw: ' + e.message, 'bad');
     }
   });
 }

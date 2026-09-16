@@ -145,6 +145,23 @@
             that tells you whether the headless iframe alone is enough or the panel must stay open.
           </p>
           <div class="log" id="probe-log"></div>
+
+          <hr style="border:none;border-top:1px solid var(--line);margin:4px 0" />
+          <p class="muted small">
+            <strong>Can this Pages-hosted app open a modal on localhost?</strong> This page's
+            <code>sdkUri</code> is on github.io, so if an arbitrary <code>http://localhost</code>
+            URL loads as a modal, one app can serve everyone <em>and</em> reach a local server —
+            because the modal document itself is localhost-origin, so LNA never applies to its
+            own fetches.
+          </p>
+          <label class="field">
+            <span>Modal URL to try</span>
+            <input id="modal-url" type="text" placeholder="http://localhost:3001/terminal.html" />
+          </label>
+          <div class="row-actions">
+            <button id="btn-open-any-modal">Open modal at this URL</button>
+          </div>
+          <div class="log" id="modal-log"></div>
         </div>
       </details>
     </div>
