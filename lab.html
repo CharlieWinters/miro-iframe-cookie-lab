@@ -162,6 +162,28 @@
             <button id="btn-open-any-modal">Open modal at this URL</button>
           </div>
           <div class="log" id="modal-log"></div>
+
+          <hr style="border:none;border-top:1px solid var(--line);margin:4px 0" />
+          <p class="muted small">
+            <strong>And a panel?</strong> A spawner wants to be non-blocking and stay open while you
+            place things on the board, which a modal cannot do. Same question as above, plus a
+            second one: does opening a panel <em>replace</em> this one, or sit beside it? The docs
+            cap modals at one explicitly and say nothing about panels. The request is routed through
+            the headless iframe, which is where the SDK documents openPanel as belonging.
+          </p>
+          <label class="field">
+            <span>Panel URL to try</span>
+            <input id="panel-url" type="text" placeholder="https://localhost:3001/terminal.html" />
+          </label>
+          <div class="row-actions">
+            <button id="btn-open-any-panel">Open panel at this URL</button>
+          </div>
+          <p class="note small">
+            Watch what happens to <em>this</em> panel. Replaced means one panel at a time; still
+            here alongside a new one means several can be laid out. A thrown error naming the URL
+            means absolute cross-origin panel URLs are refused.
+          </p>
+          <div class="log" id="panel-log"></div>
         </div>
       </details>
     </div>

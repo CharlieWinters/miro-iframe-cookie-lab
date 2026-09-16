@@ -501,6 +501,7 @@ async function init() {
   frameprobe.initResponder();
   wireFrameProbeCard();
   wireLocalhostModalTest();
+  wireLocalhostPanelTest();
 
   renderCookieTable();
   renderPartitionReport();
@@ -720,5 +721,43 @@ function wireLocalhostModalTest() {
     } catch (e) {
       logTo('#modal-log', 'openModal threw: ' + e.message, 'bad');
     }
+  });
+}
+
+
+/* ------------------------------- can a panel load a localhost URL? */
+
+/**
+ * Asks the headless iframe to open a panel at an arbitrary URL and reports what
+ * came back. Sent over BroadcastChannel because the panel and the headless
+ * iframe are same-origin here, and that channel is already proven between them
+ * by card 6 — the point of this test is openPanel's behaviour, not the
+ * transport.
+ */
+function wireLocalhostPanelTest() {
+  const btn = $('#btn-open-any-panel');
+  if (!btn) return;
+
+  let bc = null;
+  try {
+    bc = new BroadcastChannel('clab-probe');
+    bc.addEventListener('message', (event) => {
+      const d = event.data;
+      if (!d || d.type !== 'clab-probe:panel-result') return;
+      if (d.ok) {
+        logTo('#panel-log', `openPanel resolved for ${d.url} — check whether this panel survived.`, 'ok');
+      } else {
+        logTo('#panel-log', `openPanel refused: ${d.error}`, 'bad');
+      }
+    });
+  } catch (e) {
+    logTo('#panel-log', 'BroadcastChannel unavailable: ' + e.name, 'bad');
+  }
+
+  btn.addEventListener('click', () => {
+    const url = $('#panel-url').value.trim() || $('#panel-url').placeholder;
+    logTo('#panel-log', `asking the headless iframe to openPanel("${url}") …`);
+    if (!bc) { logTo('#panel-log', 'no channel to ask on', 'bad'); return; }
+    bc.postMessage({ type: 'clab-probe:open-panel', v: 1, url });
   });
 }

@@ -41,6 +41,8 @@ const MSG = {
   connected: 'clab-probe:connected',
   error: 'clab-probe:error',
   appReady: 'clab-probe:app-ready',
+  openPanel: 'clab-probe:open-panel',
+  panelResult: 'clab-probe:panel-result',
 };
 
 /* --------------------------------------------------------------- utilities */
@@ -191,8 +193,49 @@ export function initResponder() {
     };
   }
 
+  /**
+   * Opens a panel at an arbitrary URL, on behalf of whichever surface asked.
+   *
+   * Two things are being measured, and both decide real design questions:
+   *
+   * 1. Does openPanel accept an ABSOLUTE cross-origin URL, the way openModal
+   *    turned out to? If it does, a spawner panel can be served from a
+   *    developer's own machine and keep calling its local server directly
+   *    (/api/browse, /api/pty/start) even while the app's sdkUri is public.
+   * 2. Does a second openPanel REPLACE the open one, or sit beside it? That
+   *    settles whether several panels can be laid out at once — the docs cap
+   *    modals at one explicitly but say nothing about panels.
+   *
+   * Routed through the headless iframe deliberately: the SDK documents
+   * openPanel as being called from there, and a surface asking for its own
+   * replacement is exactly the signalling path a real spawner would use.
+   */
+  async function doOpenPanel(url) {
+    if (!/headless/i.test(surface)) {
+      throw new Error(`refusing: this is "${surface}", not the headless iframe`);
+    }
+    const miro = await loadSdk();
+    await miro.board.ui.openPanel({ url });
+  }
+
+  function handlePanel(data, respond) {
+    doOpenPanel(data.url)
+      .then(() => respond({ type: MSG.panelResult, token: data.token, surface, ok: true, url: data.url }))
+      .catch((err) =>
+        respond({
+          type: MSG.panelResult,
+          token: data.token,
+          surface,
+          ok: false,
+          url: data.url,
+          error: String((err && err.message) || err),
+        })
+      );
+  }
+
   function handle(data, respond) {
     if (!data || typeof data !== 'object') return;
+    if (data.type === MSG.openPanel) { handlePanel(data, respond); return; }
     if (data.type !== MSG.hello && data.type !== MSG.read) return;
     buildReply(data)
       .then((reply) => {
@@ -213,7 +256,7 @@ export function initResponder() {
   window.addEventListener('message', (event) => {
     const data = event.data;
     if (!data || typeof data !== 'object') return;
-    if (data.type !== MSG.hello && data.type !== MSG.read) return;
+    if (data.type !== MSG.hello && data.type !== MSG.read && data.type !== MSG.openPanel) return;
     handle({ ...data, via: 'postMessage' }, (reply) => {
       // A sandboxed embed has an opaque origin, which no exact targetOrigin can
       // ever match, so '*' is the only way to answer it at all.
