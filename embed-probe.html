@@ -41,6 +41,10 @@
          color:var(--muted); }
   #log div { padding:1px 0; }
   #log div.ok{color:#7ee2a8} #log div.bad{color:#ff9c94}
+  button { font:inherit; font-size:12px; padding:6px 11px; border-radius:6px; cursor:pointer;
+           background:#22303f; color:var(--text); border:1px solid var(--line); }
+  button:hover { border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
 </style>
 </head>
 <body>
@@ -58,6 +62,20 @@
     <thead><tr><th>Channel</th><th>Cross-origin?</th><th>Result</th><th>Answered by</th></tr></thead>
     <tbody id="matrix"></tbody>
   </table>
+</div>
+
+<h2>Which app surfaces answered</h2>
+<div class="box">
+  <div id="surface-verdict" class="verdict" style="margin:0 0 10px">Collecting replies…</div>
+  <table>
+    <thead><tr><th>App surface</th><th>Channel</th><th>First reply</th><th>Sent board data</th></tr></thead>
+    <tbody id="responders"><tr><td colspan="4" style="color:var(--muted)">none yet</td></tr></tbody>
+  </table>
+  <div style="margin-top:10px; display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+    <button id="btn-rerun">Re-run probe</button>
+    <span class="mono" style="color:var(--muted)">close the app panel, then re-run — if a headless
+      surface still answers, this embed works unattended</span>
+  </div>
 </div>
 
 <h2>Board data that came back</h2>
@@ -225,7 +243,67 @@
   var verdictEl = document.getElementById('verdict');
   var senders = {}; // via -> function(msg)
 
-  function onResponse(d, via, fromLabel) {
+  // Every distinct (surface, channel) that replies, not just the first. A panel
+  // answering 40ms before the headless iframe used to hide the headless one
+  // entirely, which is exactly the thing worth knowing: only the headless
+  // surface is always loaded with the board, so only it makes this embed work
+  // with nobody holding the app panel open.
+  var responders = [];
+
+  function findResponder(surface, via) {
+    for (var i = 0; i < responders.length; i++) {
+      if (responders[i].surface === surface && responders[i].via === via) return responders[i];
+    }
+    return null;
+  }
+
+  function renderResponders() {
+    var tb = document.getElementById('responders');
+    if (!responders.length) {
+      tb.innerHTML = '<tr><td colspan="4" style="color:var(--muted)">none yet</td></tr>';
+    } else {
+      tb.innerHTML = '';
+      responders.slice().sort(function (a, b) { return a.t - b.t; }).forEach(function (r) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td class="mono">' + esc(r.surface) + '</td>' +
+          '<td class="mono">' + esc(r.via) + '</td>' +
+          '<td class="mono">+' + r.t + 'ms</td>' +
+          '<td>' + (r.data ? '<span class="pill ok">yes</span>'
+                           : '<span class="pill idle">no</span>') + '</td>';
+        tb.appendChild(tr);
+      });
+    }
+
+    var sv = document.getElementById('surface-verdict');
+    var headless = responders.filter(function (r) { return /headless/i.test(r.surface); });
+    var panel = responders.filter(function (r) { return !/headless/i.test(r.surface); });
+    if (headless.length) {
+      sv.className = 'verdict yes';
+      sv.textContent = '✅ The headless iframe answered. This embed works unattended — no app ' +
+        'panel needs to be open' + (panel.length ? ' (the panel answered too).' : '.');
+    } else if (panel.length) {
+      sv.className = 'verdict no';
+      sv.textContent = '⚠️ Only a panel/modal surface answered. This embed would go blank for ' +
+        'anyone who has not opened the app panel. Re-run with the panel closed to confirm.';
+    } else {
+      sv.className = 'verdict';
+      sv.textContent = 'Collecting replies…';
+    }
+  }
+
+  function noteResponder(surface, via, gotBoardData) {
+    var existing = findResponder(surface, via);
+    if (existing) {
+      if (gotBoardData) { existing.data = true; renderResponders(); }
+      return false;
+    }
+    responders.push({ surface: surface, via: via, t: Date.now() - t0, data: !!gotBoardData });
+    renderResponders();
+    return true;
+  }
+
+  function onResponse(d, via, fromLabel, src) {
     if (!d || typeof d !== 'object') return;
     if (token && d.token !== token) return;
 
@@ -235,31 +313,40 @@
       return;
     }
     if (d.type === M.here) {
-      mark(via, 'answered', d.surface || fromLabel || '?');
-      log('ANSWER on ' + via + ' from ' + (d.surface || '?'), 'ok');
+      var surface = d.surface || fromLabel || '?';
+      var isNew = noteResponder(surface, via, false);
+      mark(via, 'answered', surface);
+      if (isNew) log('ANSWER on ' + via + ' from ' + surface, 'ok');
       if (!reached) {
         reached = true;
         verdictEl.className = 'verdict yes';
-        verdictEl.textContent = '✅ Reached the app iframe over ' + via + '. Asking it to read the board…';
+        verdictEl.textContent = '✅ Reached an app iframe over ' + via + '. Asking it to read the board…';
       }
-      if (senders[via]) {
-        senders[via]({ type: M.read, v: 1, probeId: probeId, token: token });
+      // Ask this exact frame where possible, so the payload is attributable to
+      // the surface that sent it rather than to whoever shouts back first.
+      var readMsg = { type: M.read, v: 1, probeId: probeId, token: token };
+      if (via === 'postMessage' && src) {
+        appOrigins.forEach(function (o) { try { src.postMessage(readMsg, o); } catch (e) {} });
+      } else if (senders[via]) {
+        senders[via](readMsg);
       }
       return;
     }
     if (d.type === M.connected) {
-      mark(via, 'answered', d.surface || '?');
+      var s2 = d.surface || '?';
+      noteResponder(s2, via, true);
+      mark(via, 'answered', s2);
       if (!gotData) {
         gotData = true;
         verdictEl.className = 'verdict yes';
         verdictEl.textContent = '✅ Works. Board data crossed from the app iframe into this embed over ' + via + '.';
         renderPayload(d);
       }
-      log('board data over ' + via + ': ' + d.count + ' connected item(s)', 'ok');
+      log('board data over ' + via + ' from ' + s2 + ': ' + d.count + ' item(s)', 'ok');
       return;
     }
     if (d.type === M.error) {
-      log('app error (' + via + '): ' + d.error, 'bad');
+      log('app error (' + via + ', ' + (d.surface || '?') + '): ' + d.error, 'bad');
       if (!gotData) document.getElementById('payload').textContent = 'App error: ' + d.error;
     }
   }
@@ -276,7 +363,7 @@
     log('postMessage ' + msg.type.split(':')[1] + ' → ' + sent + ' posts');
   };
   window.addEventListener('message', function (event) {
-    onResponse(event.data, 'postMessage', event.origin);
+    onResponse(event.data, 'postMessage', event.origin, event.source);
   });
 
   /* ---- channel 2: BroadcastChannel -------------------------------------- */
@@ -335,24 +422,52 @@
     });
   }
 
-  renderMatrix();
-  var attempts = 0;
-  sendHello(); attempts++;
-  var iv = setInterval(function () {
-    if (gotData || attempts >= 15) {
-      clearInterval(iv);
-      if (!gotData) {
-        verdictEl.className = 'verdict no';
-        verdictEl.textContent = reached
-          ? '⚠️ Reached the app, but no board data came back. See the log.'
-          : '❌ No app iframe answered on any channel after ' + attempts +
-            ' attempts. Either no app surface is open on this board, or every channel is blocked.';
-        log('stopped after ' + attempts + ' attempts', 'bad');
-      }
-      return;
+  // Deliberately keeps pinging for the whole window even after the first
+  // success: the point is to enumerate every surface that can answer, and a
+  // slower one would otherwise never be seen.
+  var MAX_ATTEMPTS = 8;
+  var attempts = 0, iv = null;
+  var rerunBtn = document.getElementById('btn-rerun');
+
+  function finish() {
+    clearInterval(iv); iv = null;
+    rerunBtn.disabled = false;
+    if (!gotData) {
+      verdictEl.className = 'verdict no';
+      verdictEl.textContent = reached
+        ? '⚠️ Reached an app iframe, but no board data came back. See the log.'
+        : '❌ No app iframe answered on any channel after ' + attempts +
+          ' attempts. Either no app surface is open on this board, or every channel is blocked.';
     }
+    log('collection window closed after ' + attempts + ' attempts' +
+        ' — ' + responders.length + ' responder(s)', responders.length ? 'ok' : 'bad');
+  }
+
+  function run() {
+    rerunBtn.disabled = true;
+    reached = false; gotData = false; attempts = 0;
+    responders = [];
+    CHANNELS.forEach(function (c) {
+      if (c.status !== 'blocked') { c.status = 'idle'; c.by = '—'; }
+    });
+    renderMatrix(); renderResponders();
+    verdictEl.className = 'verdict';
+    verdictEl.textContent = 'Trying all four channels…';
+    document.getElementById('payload').innerHTML =
+      '<span style="color:var(--muted)">Nothing yet.</span>';
+    log('--- run started ---');
+
     sendHello(); attempts++;
-  }, 1000);
+    iv = setInterval(function () {
+      if (attempts >= MAX_ATTEMPTS) { finish(); return; }
+      sendHello(); attempts++;
+    }, 1000);
+  }
+
+  rerunBtn.addEventListener('click', run);
+  renderMatrix();
+  renderResponders();
+  run();
 })();
 </script>
 </body>
