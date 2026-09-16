@@ -116,6 +116,9 @@ Finish with **"Write findings onto the board"** so the measured results land nex
 python3 -m http.server 8099        # then open http://localhost:8099/lab.html
 ```
 
+`?noviewer=1` on `lab.html` skips the three.js scene, which is how you tell app behaviour apart
+from three.js behaviour when a browser logs something you did not expect.
+
 `embed-test.html` frames the lab at panel and modal widths, standing in for the board. Serve it from
 a *different* origin than the lab (e.g. `http://127.0.0.1:8098/embed-test.html?base=http://localhost:8099/`)
 or the frames are same-origin and the browser applies no cross-site rules at all.
