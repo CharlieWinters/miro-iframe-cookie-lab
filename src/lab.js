@@ -11,11 +11,48 @@ import * as probes from './probes.js';
 import * as framepolicy from './framepolicy.js';
 import * as bridge from './authbridge.js';
 import * as miroSdk from './miro.js';
+import * as localstore from './localstore.js';
 import { createViewer } from './viewer3d.js';
 
 const DEFAULT_TEXT = 'HELLO MIRO';
 
 const $ = (sel) => document.querySelector(sel);
+
+/**
+ * Every place the 3D text can be stored, in the order the viewer prefers them, behind one
+ * read/write/remove shape. localStorage is last because it is the fallback: it is the only store
+ * still available to a frame that a browser refuses to give cookies to at all.
+ */
+const STRATEGIES = [
+  ...cookies.TEXT_VARIANTS.map((spec) => ({
+    spec,
+    read: () => cookies.read(spec),
+    write: (value) => cookies.write(spec, value),
+    remove: () => cookies.remove(spec),
+  })),
+  {
+    spec: localstore.SPEC,
+    read: () => localstore.text.read(),
+    write: (value) => localstore.text.write(value),
+    remove: () => localstore.text.remove(),
+  },
+];
+
+/** Same idea for the session, so the auth flow does not care which store actually worked. */
+const SESSION_SOURCES = [
+  ...cookies.SESSION_COOKIES.map((spec) => ({
+    spec,
+    read: () => cookies.read(spec),
+    write: (value) => cookies.write(spec, value),
+    remove: () => cookies.remove(spec),
+  })),
+  {
+    spec: localstore.SESSION_SPEC,
+    read: () => localstore.session.read(),
+    write: (value) => localstore.session.write(value),
+    remove: () => localstore.session.remove(),
+  },
+];
 
 const state = {
   ctx: probes.context(),
@@ -68,10 +105,10 @@ function logTo(target, message, kind = '') {
 
 /** First readable cookie wins; the order in TEXT_VARIANTS is the preference order. */
 function resolveText() {
-  for (const spec of cookies.TEXT_VARIANTS) {
-    const value = cookies.read(spec);
+  for (const strategy of STRATEGIES) {
+    const value = strategy.read();
     if (value !== null && value !== '') {
-      return { text: value, source: spec, fallback: false };
+      return { text: value, source: strategy.spec, fallback: false };
     }
   }
   return { text: DEFAULT_TEXT, source: null, fallback: true };
@@ -106,10 +143,11 @@ function renderViewerText({ unsaved = null } = {}) {
 function renderCookieTable() {
   const tbody = $('#cookie-table tbody');
   tbody.innerHTML = '';
-  const jar = cookies.readAll();
 
-  for (const spec of cookies.TEXT_VARIANTS) {
-    const present = Object.prototype.hasOwnProperty.call(jar, spec.name);
+  for (const strategy of STRATEGIES) {
+    const spec = strategy.spec;
+    const value = strategy.read();
+    const present = value !== null;
     const result = state.writeResults[spec.key];
 
     const writeCell = el('td', {});
@@ -124,7 +162,7 @@ function renderCookieTable() {
         el('td', {}, el('div', { class: 'strong' }, spec.short), el('div', { class: 'mono tiny' }, spec.label)),
         writeCell,
         el('td', {}, present ? pill('yes', 'ok') : pill('no', 'bad')),
-        el('td', { class: 'mono tiny wrap' }, present ? jar[spec.name] : '—'),
+        el('td', { class: 'mono tiny wrap' }, present ? value : '—'),
         el(
           'td',
           {},
@@ -132,7 +170,7 @@ function renderCookieTable() {
             'button',
             {
               class: 'small-btn',
-              onclick: () => setVia(spec),
+              onclick: () => setVia(strategy),
               title: spec.note,
             },
             'Set'
@@ -145,15 +183,16 @@ function renderCookieTable() {
   const note = $('#cookie-note');
   note.innerHTML = '';
   const ul = el('ul', { class: 'note-list' });
-  for (const spec of cookies.TEXT_VARIANTS) {
+  for (const { spec } of STRATEGIES) {
     ul.appendChild(el('li', {}, el('span', { class: 'strong' }, `${spec.short}: `), spec.note));
   }
   note.appendChild(ul);
 }
 
-function setVia(spec) {
+function setVia(strategy) {
+  const spec = strategy.spec;
   const value = ($('#text-input').value || '').trim() || DEFAULT_TEXT;
-  const result = cookies.write(spec, value);
+  const result = strategy.write(value);
   state.writeResults[spec.key] = result;
 
   if (result.persisted) {
@@ -241,16 +280,16 @@ async function probeFrame(url, label) {
 /* ---------------------------------------------------------------- auth card */
 
 function readSession() {
-  for (const spec of cookies.SESSION_COOKIES) {
-    const raw = cookies.read(spec);
+  for (const source of SESSION_SOURCES) {
+    const raw = source.read();
     if (!raw) continue;
     const claims = bridge.decodeToken(raw);
     if (!claims) continue;
     if (claims.exp && claims.exp * 1000 < Date.now()) {
-      cookies.remove(spec);
+      source.remove();
       continue;
     }
-    return { user: claims.sub, token: raw, claims, source: spec };
+    return { user: claims.sub, token: raw, claims, source: source.spec };
   }
   return null;
 }
@@ -277,15 +316,23 @@ function renderAuthState() {
 
 /** Persist the session inside *this* frame, which is the partition that matters for the panel. */
 function persistSession(token) {
-  const outcomes = cookies.SESSION_COOKIES.map((spec) => {
-    const r = cookies.write(spec, token);
+  const outcomes = SESSION_SOURCES.map((source) => {
+    const r = source.write(token);
     logTo(
       '#auth-log',
-      `${r.persisted ? 'Persisted' : 'Could not persist'} session in ${spec.name} (${spec.label})`,
+      `${r.persisted ? 'Persisted' : 'Could not persist'} session in ${source.spec.name} (${source.spec.label})`,
       r.persisted ? 'ok' : 'bad'
     );
     return r;
   });
+  if (!outcomes.some((r) => r.persisted)) {
+    logTo(
+      '#auth-log',
+      'Nothing persisted: this frame has no writable store, so the session lives in memory only and ' +
+        'will not survive a reload. Storage access, or a first-party context, is the only way out.',
+      'bad'
+    );
+  }
   return outcomes;
 }
 
@@ -328,7 +375,7 @@ function startLogin() {
 }
 
 async function requestStorageAccess() {
-  const before = cookies.SESSION_COOKIES.map((s) => [s.name, cookies.read(s) ? 'visible' : 'hidden']);
+  const before = SESSION_SOURCES.map((s) => [s.spec.name, s.read() ? 'visible' : 'hidden']);
   const result = await probes.storageAccess.request();
   state.storageAccess.lastRequest = result;
   if (result.granted) {
@@ -336,7 +383,7 @@ async function requestStorageAccess() {
   } else {
     logTo('#auth-log', `Storage access refused: ${result.error}`, 'bad');
   }
-  const after = cookies.SESSION_COOKIES.map((s) => [s.name, cookies.read(s) ? 'visible' : 'hidden']);
+  const after = SESSION_SOURCES.map((s) => [s.spec.name, s.read() ? 'visible' : 'hidden']);
   for (let i = 0; i < before.length; i++) {
     if (before[i][1] !== after[i][1]) {
       logTo('#auth-log', `${before[i][0]}: ${before[i][1]} → ${after[i][1]}`, 'ok');
@@ -361,15 +408,18 @@ function collectFindings() {
       determined: state.frameVerdict.determined,
       reason: state.frameVerdict.reason,
     },
-    cookies: cookies.snapshot().map((row) => ({
-      name: row.spec.name,
-      attributes: row.spec.label,
-      readable: row.present,
-      value: row.value,
-      lastWrite: state.writeResults[row.spec.key]
-        ? { persisted: state.writeResults[row.spec.key].persisted, readBack: state.writeResults[row.spec.key].readBack }
-        : null,
-    })),
+    stores: [...STRATEGIES, ...SESSION_SOURCES].map((s) => {
+      const value = s.read();
+      const write = state.writeResults[s.spec.key];
+      return {
+        name: s.spec.name,
+        attributes: s.spec.label,
+        readable: value !== null,
+        value: s.spec.name.includes('session') ? (value ? '<token>' : null) : value,
+        lastWrite: write ? { persisted: write.persisted, readBack: write.readBack } : null,
+      };
+    }),
+    contextStamp: cookies.read(cookies.STAMP_COOKIE),
     viewerText: resolveText().text,
     viewerTextSource: resolveText().source ? resolveText().source.name : 'default',
     auth: state.auth
@@ -386,12 +436,11 @@ function findingsLines(f) {
     `Browser: ${f.browser.name} (${f.browser.platform})`,
     `Embedder: ${f.context.embedder || 'none'}`,
     `localStorage partition id: ${f.storage.partition.id || 'n/a'}`,
-    `Context stamp: ${(f.cookies.find((c) => c.name === 'demo_ctx_stamp') || {}).value || 'not readable'}`,
+    `Context stamp: ${f.contextStamp || 'not readable'}`,
     '',
-    'Cookie readability in this context:',
+    'Storage readability in this context:',
   ];
-  for (const c of f.cookies) {
-    if (c.name === 'demo_ctx_stamp') continue;
+  for (const c of f.stores) {
     lines.push(`  ${c.name} [${c.attributes}] -> ${c.readable ? 'readable' : 'not readable'}${c.lastWrite ? `, write ${c.lastWrite.persisted ? 'kept' : 'dropped'}` : ''}`);
   }
   lines.push('', `3D text shown: "${f.viewerText}" (source: ${f.viewerTextSource})`);
@@ -461,20 +510,21 @@ async function init() {
 
   $('#btn-clear').addEventListener('click', () => {
     cookies.removeAll();
+    localstore.removeAll();
     state.writeResults = {};
     state.auth = null;
     renderCookieTable();
     renderPartitionReport();
     renderAuthState();
     renderViewerText();
-    logTo('#auth-log', 'Cleared every demo_* cookie visible in this context.', 'warn');
+    logTo('#auth-log', 'Cleared every demo_* cookie and localStorage key visible in this context.', 'warn');
   });
 
   $('#btn-reload').addEventListener('click', () => location.reload());
 
   $('#btn-login').addEventListener('click', startLogin);
   $('#btn-logout').addEventListener('click', () => {
-    for (const spec of cookies.SESSION_COOKIES) cookies.remove(spec);
+    for (const source of SESSION_SOURCES) source.remove();
     state.auth = null;
     renderAuthState();
     renderCookieTable();

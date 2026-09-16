@@ -31,15 +31,16 @@
 
     <div class="cols">
       <details class="card" open>
-        <summary><span class="num">1</span> Cookie write matrix</summary>
+        <summary><span class="num">1</span> Cookie &amp; storage write matrix</summary>
         <div class="card-body">
           <label class="field">
             <span>Text to render in 3D</span>
             <input id="text-input" type="text" maxlength="48" placeholder="dog" />
           </label>
           <p class="muted small">
-            Pick a write strategy. The value is read straight back — a refused write does not throw,
-            so read-back is the only honest signal.
+            Pick a store. The value is read straight back — a refused write does not throw, so
+            read-back is the only honest signal. The last row is not a cookie: it is the fallback for
+            a frame the browser gives no cookies to at all.
           </p>
           <div class="table-wrap">
             <table id="cookie-table">

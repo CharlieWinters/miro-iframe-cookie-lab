@@ -25,7 +25,7 @@ experiment.
 
 | Card | Question it answers |
 | --- | --- |
-| 1. Cookie write matrix | Which `SameSite` / `Partitioned` combination can actually be written and read from inside the board iframe |
+| 1. Cookie & storage write matrix | Which `SameSite` / `Partitioned` combination can actually be written and read from inside the board iframe, and whether `localStorage` still works when none of them do |
 | 2. Is this context partitioned? | Whether the panel and a normal tab share one storage jar or two |
 | 3. Authenticating from inside the board | The popup → `postMessage` → in-frame cookie handshake, plus the Storage Access API alternative |
 | 4. Framing policy | What `frame-ancestors` does to the panel, and what it costs to get it wrong |
@@ -52,8 +52,11 @@ Roughly ten minutes, and it builds to the architectural point.
 2. **Type `dog` and press Set on `SameSite=Lax`.** The row reports the write as dropped and the
    viewer does not change. Lax cookies are invisible to a cross-site frame — this is the failure
    most integrations hit first.
-3. **Set the same value via `SameSite=None; Secure; Partitioned`.** It sticks, and the 3D text
-   becomes `dog`. Reload the panel: still `dog`. That is session persistence inside the board.
+3. **Set the same value via `SameSite=None; Secure; Partitioned`.** In Chrome it sticks, and the
+   3D text becomes `dog`. Reload the panel: still `dog`. That is session persistence inside the
+   board. In Safari expect this row to be dropped too — WebKit has not shipped CHIPS and gives a
+   third-party frame no cookies at all. Fall to the last row, `localStorage`, which does persist
+   there. The 3D text does not care which store won, which is the point.
 4. **Click "Open this lab in a new tab".** Same URL, now first-party. Note the partition id and
    context stamp in card 2 — in a browser that partitions, they differ from the panel's, and the
    3D text falls back to the default even though the panel still says `dog`. Two jars, one origin.
@@ -62,8 +65,9 @@ Roughly ten minutes, and it builds to the architectural point.
    session cookie anyway. Sign in; the tab writes its own first-party cookies, hands the session
    back over `postMessage`, and closes itself.
 6. **Back in the panel:** signed in. The log shows the panel re-persisting the session into *its
-   own* partition. Reload — still signed in. This is the pattern that works everywhere, including
-   Safari.
+   own* partition, and says which stores accepted it — in Safari that will be `localStorage` alone.
+   Reload — still signed in. The handshake is what works everywhere; which store catches the
+   session afterwards is per-browser, and the log tells you.
 7. **"Request storage access".** The supported route to the *unpartitioned* jar. Useful as an
    upgrade path, but it needs a user gesture and recent first-party interaction, so it cannot be
    the only route.
@@ -75,17 +79,28 @@ Finish with **"Write findings onto the board"** so the measured results land nex
 
 ## Things worth knowing before you demo
 
-- **Run it in the browsers that matter**, ideally Chrome and Safari side by side. The answers differ,
-  which is the point: the app measures rather than predicts. Chrome with default settings still
+- **Run it in the browsers that matter**, ideally Chrome and Safari side by side. The answers
+  differ, which is why the app measures rather than predicts. Chrome with default settings still
   allows third-party cookies, so almost everything works and the partitioning story is easy to
-  under-sell. Safari blocks third-party cookies outright and Firefox partitions them, so those are
-  where step 4 actually bites. Chrome's incognito window is a quick stand-in.
+  under-sell.
+
+  Measured in a headless WebKit 26.4 (Safari's engine) with the live app framed cross-site: every
+  cookie write was dropped, including the `Partitioned` one, and `navigator.cookieEnabled` read
+  `false` — while `localStorage` stayed readable and writable. Repeat runs were not consistent:
+  after a first-party visit to the app, the same frame reported `hasStorageAccess() === true` and
+  cookie writes succeeded. Automation builds also differ from shipping Safari on ITP heuristics.
+  Treat all of that as a reason to run the lab live on the machine you are presenting from rather
+  than as a settled result — and expect `localStorage` to be the row that carries Safari.
 - **`frame-ancestors` cannot be demonstrated for real from GitHub Pages** — Pages sends no custom
   headers, and the directive is ignored in a `<meta>` tag. Card 4 enforces the same allowlist in
   JavaScript, which is both a truthful reproduction of the user-visible effect and what you are
   left with on a host that cannot set headers. For the genuine header, `_headers` in this repo works
   as-is on Netlify or Cloudflare Pages (`netlify deploy --dir=.`), and the "Probe a host that
   refuses framing" button shows a real header-level refusal using github.com.
+- **Text written onto the board is rewritten first.** Miro's WAF rejects payloads that look like
+  cookie headers, and the findings are almost entirely `name=value; attribute` strings, so
+  `src/miro.js` reshapes them (`SameSite=None; Secure` becomes `SameSite None + Secure`) before the
+  board write. Same information, no 403.
 - **The session token is an unsigned stub minted in the browser.** It exists so the demo has
   something to pass through the handshake. `server-reference.md` has the headers and the token
   handling a real deployment needs.
@@ -114,6 +129,7 @@ auth.html               top-level login tab; postMessages the session back
 embed-test.html         local stand-in for the board
 src/cookies.js          write strategies, read-back verification
 src/probes.js           context, storage, partition id, Storage Access API
+src/localstore.js       localStorage fallback store, for frames that get no cookies
 src/framepolicy.js      frame-ancestors simulation and real-header probe
 src/authbridge.js       nonce, token stub, postMessage handshake
 src/viewer3d.js         three.js floating 3D text

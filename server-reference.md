@@ -27,6 +27,18 @@ If a browser does not implement CHIPS it ignores the unknown attribute and treat
 plain `SameSite=None` third-party cookie — so the header above degrades to "works where third-party
 cookies are allowed" rather than breaking.
 
+**WebKit has not shipped CHIPS.** In a cross-site frame it can refuse cookies outright, with
+`navigator.cookieEnabled === false` and every write silently dropped. Plan for a store that does not
+depend on cookies at all:
+
+- Keep the session reference in `localStorage`, which stays available to the frame and is
+  partitioned by top-level site in every current browser.
+- Send it explicitly (`Authorization: Bearer …`), since script storage is never attached to requests
+  automatically. That also means it cannot be `HttpOnly`, so issue a short-lived, narrowly-scoped
+  reference and treat the store as a cache the login handshake can rebuild.
+- Safari's ITP evicts script-written storage after roughly seven days without interaction, so the
+  handshake has to be re-runnable rather than one-time.
+
 ## Framing
 
 ```
