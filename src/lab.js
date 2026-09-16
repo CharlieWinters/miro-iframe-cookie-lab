@@ -470,7 +470,12 @@ async function init() {
   document.body.classList.add(state.ctx.framed ? 'is-framed' : 'is-top');
   if (state.ctx.inMiro) document.body.classList.add('in-miro');
 
-  // Viewer
+  // Viewer. `?noviewer=1` skips it, which is how you tell app behaviour apart from three.js
+  // behaviour when a browser logs something odd.
+  if (new URLSearchParams(location.search).get('noviewer') === '1') {
+    $('#viewer-meta').textContent = 'Viewer disabled by ?noviewer=1.';
+    document.querySelector('.canvas-wrap').style.display = 'none';
+  } else
   try {
     state.viewer = await createViewer($('#scene'));
     if (state.viewer.fontError) {
