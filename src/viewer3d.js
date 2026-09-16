@@ -39,6 +39,14 @@ export async function createViewer(canvas) {
   controls.maxDistance = 1200;
   controls.target.set(0, 20, 0);
 
+  // The viewer sits at the top of a scrollable panel, so it must not swallow the page's scroll.
+  // OrbitControls returns before calling preventDefault() when zoom is off, so the wheel reaches
+  // the document; and overriding the `touch-action: none` it sets in its constructor lets a
+  // vertical touch drag scroll the panel while horizontal drags still rotate the scene.
+  // Nothing is lost: the camera auto-frames the text, so there is no need to zoom by hand.
+  controls.enableZoom = false;
+  canvas.style.touchAction = 'pan-y';
+
   scene.add(new THREE.HemisphereLight(0x9fd0ff, 0x1b1f27, 1.1));
   const key = new THREE.DirectionalLight(0xffffff, 2.2);
   key.position.set(120, 220, 320);

@@ -17,6 +17,10 @@
 
 * { box-sizing: border-box; }
 
+html, body {
+  height: 100%;
+}
+
 body {
   margin: 0;
   color: var(--ink);
@@ -45,8 +49,19 @@ body.entry { padding: 32px; max-width: 640px; }
 
 /* ----------------------------------------------------------------- lab shell */
 
-body.lab { padding: 10px; }
-#root { display: flex; flex-direction: column; gap: 10px; }
+/*
+ * The lab scrolls inside #root rather than relying on the document scrolling. An embedder
+ * controls the iframe, and an iframe that forbids document scrolling would otherwise leave the
+ * panel with content it cannot reach; a scroll container the app owns works either way.
+ */
+body.lab { padding: 0; overflow: hidden; }
+#root {
+  display: flex; flex-direction: column; gap: 10px;
+  height: 100%; overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px;
+}
+#root > * { min-width: 0; }
 
 .banner {
   display: flex; align-items: center; gap: 10px;
@@ -65,7 +80,7 @@ body.is-framed:not(.in-miro) .banner .dot { background: var(--warn); }
 
 .viewer-block { display: flex; flex-direction: column; gap: 6px; }
 .canvas-wrap {
-  position: relative; width: 100%; height: 220px;
+  position: relative; width: 100%; height: 180px;
   border-radius: var(--radius); overflow: hidden; background: #0e1116;
 }
 .canvas-wrap canvas { display: block; width: 100%; height: 100%; }
@@ -73,8 +88,8 @@ body.is-framed:not(.in-miro) .banner .dot { background: var(--warn); }
 
 /* --------------------------------------------------------------------- cards */
 
-.cols { display: grid; grid-template-columns: 1fr; gap: 10px; }
-.card { border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
+.cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.card { border: 1px solid var(--line); border-radius: var(--radius); background: #fff; min-width: 0; }
 .card > summary {
   cursor: pointer; padding: 9px 10px; font-weight: 600; display: flex; align-items: center; gap: 8px;
   list-style: none;
@@ -86,7 +101,8 @@ body.is-framed:not(.in-miro) .banner .dot { background: var(--warn); }
   width: 18px; height: 18px; border-radius: 50%; background: var(--blue); color: #fff;
   font-size: 11px; display: inline-flex; align-items: center; justify-content: center; flex: none;
 }
-.card-body { padding: 0 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+.card-body { padding: 0 10px 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card-body > * { min-width: 0; }
 details.sub { border-top: 1px solid var(--line); padding-top: 6px; }
 details.sub > summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 
@@ -115,10 +131,21 @@ button.small-btn { padding: 3px 8px; font-size: 12px; }
 
 /* -------------------------------------------------------------------- tables */
 
-.table-wrap { overflow-x: auto; }
+.table-wrap { overflow-x: auto; min-width: 0; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+td .mono { overflow-wrap: anywhere; }
+
+/*
+ * In a narrow panel the Set button matters more than the stored value, which is already on show
+ * in the 3D scene and in the findings card. Drop the value column rather than push the button
+ * into the table's horizontal scroller.
+ */
+@media (max-width: 439px) {
+  #cookie-table th:nth-child(4), #cookie-table td:nth-child(4) { display: none; }
+  #cookie-table th, #cookie-table td { padding: 5px 4px; }
+}
 
 dl.kv { display: grid; grid-template-columns: minmax(120px, 40%) 1fr; gap: 2px 10px; margin: 0; font-size: 12px; }
 dl.kv dt { color: var(--muted); }
@@ -170,7 +197,7 @@ body.auth { padding: 28px 20px; background: #f4f5f7; }
 /* ------------------------------------------------------------ wide surfaces */
 
 @media (min-width: 760px) {
-  body.lab { padding: 16px 20px; }
-  .cols { grid-template-columns: 1fr 1fr; align-items: start; }
+  #root { padding: 16px 20px; }
+  .cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
   .canvas-wrap { height: 300px; }
 }

@@ -132,6 +132,7 @@ function renderViewerText({ unsaved = null } = {}) {
       ? pill('default text', 'warn')
       : pill(unsaved !== null ? 'unsaved' : resolved.source.short, unsaved !== null ? 'warn' : 'ok'),
     el('span', {}, ` ${sub}`),
+    el('span', { class: 'muted' }, 'drag to rotate'),
     clean.dropped
       ? el('span', { class: 'muted' }, `  ·  ${clean.dropped} character(s) dropped: the vendored font is Latin-only`)
       : ''
