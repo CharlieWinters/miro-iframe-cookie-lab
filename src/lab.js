@@ -237,7 +237,12 @@ async function renderEnvReport() {
     ['location.ancestorOrigins', state.ctx.ancestorOriginsSupported ? JSON.stringify(state.ctx.ancestorOrigins) : 'not implemented in this browser'],
     ['document.referrer', state.ctx.referrer || '(empty)'],
     ['Opaque origin (sandboxed)', String(sandbox.opaqueOrigin)],
-    ['frameElement readable', String(sandbox.frameElementReadable) + (sandbox.sandboxAttr ? ` · sandbox="${sandbox.sandboxAttr}"` : '')],
+    [
+      'frameElement readable',
+      sandbox.reason
+        ? sandbox.reason
+        : String(sandbox.frameElementReadable) + (sandbox.sandboxAttr ? ` · sandbox="${sandbox.sandboxAttr}"` : ''),
+    ],
     ['Storage Access API', state.storageAccess.supported ? 'available' : 'not implemented'],
     ['document.hasStorageAccess()', state.storageAccess.has === null ? 'n/a' : String(state.storageAccess.has)],
   ]);

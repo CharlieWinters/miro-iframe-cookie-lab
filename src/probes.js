@@ -58,13 +58,39 @@ export function context() {
   };
 }
 
-/** Read the iframe's sandbox flags if the embedder set any. */
+/**
+ * Read the iframe's sandbox flags if the embedder set any.
+ *
+ * Only attempted when the embedder is same-origin. WebKit reports a cross-origin property read to
+ * the console as a SecurityError even when the read is wrapped in try/catch, so probing
+ * `frameElement` unconditionally leaves an alarming-looking error in the console of a demo whose
+ * whole subject is cross-origin frames. Inside Miro the embedder is always cross-origin, so the
+ * answer is known without asking.
+ */
 export function sandboxInfo() {
   const opaque = location.origin === 'null' || window.origin === 'null';
+  const framed = window.top !== window.self;
+
+  let embedderSameOrigin = !framed;
+  try {
+    const list = location.ancestorOrigins;
+    if (list && list.length) embedderSameOrigin = list[list.length - 1] === location.origin;
+  } catch (e) {
+    /* leave the conservative default */
+  }
+
+  if (!embedderSameOrigin) {
+    return {
+      opaqueOrigin: opaque,
+      frameElementReadable: false,
+      sandboxAttr: null,
+      reason: 'cross-origin embedder — not attempted',
+    };
+  }
+
   let frameElementReadable = false;
   let sandboxAttr = null;
   try {
-    // Cross-origin embedding makes this throw, which is itself the expected answer inside Miro.
     if (window.frameElement) {
       frameElementReadable = true;
       sandboxAttr = window.frameElement.getAttribute('sandbox');
@@ -72,7 +98,7 @@ export function sandboxInfo() {
   } catch (e) {
     frameElementReadable = false;
   }
-  return { opaqueOrigin: opaque, frameElementReadable, sandboxAttr };
+  return { opaqueOrigin: opaque, frameElementReadable, sandboxAttr, reason: null };
 }
 
 function probeStorage(store, key) {
