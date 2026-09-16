@@ -1,0 +1,18 @@
+# Miro app manifest for the Cookie & Frame Lab.
+#
+# Paste into: Developer team → your app → App manifest → Save.
+# Swap the host if you fork this to another GitHub account.
+#
+# Docs: https://developers.miro.com/docs/app-manifest
+
+appName: Cookie & Frame Lab
+sdkVersion: SDK_V2
+sdkUri: https://charliewinters.github.io/miro-iframe-cookie-lab/
+scopes:
+  - boards:read
+  # Only the "Write findings onto the board" button needs this one.
+  - boards:write
+
+# The lab opens its own modal from the panel, so no board picker is involved.
+boardPicker:
+  allowedDomains: []

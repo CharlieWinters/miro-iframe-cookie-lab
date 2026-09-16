@@ -1,0 +1,18 @@
+# Response headers for hosts that support them (Netlify, Cloudflare Pages).
+#
+# GitHub Pages ignores this file — it cannot send custom headers at all. It is here so the
+# frame-ancestors half of the demo can be shown for real by dropping the same directory onto a
+# host that does: `netlify deploy --dir=.` or a Cloudflare Pages direct upload.
+#
+# Flip between the two frame-ancestors lines to show a working panel versus a blank one.
+
+/*
+  # Allow Miro to embed this app. This is what a partner app must send.
+  Content-Security-Policy: frame-ancestors https://miro.com https://*.miro.com
+
+  # Swap the line above for this one to demonstrate the failure mode — the Miro panel goes blank
+  # and the browser logs a frame-ancestors violation on the miro.com side.
+  # Content-Security-Policy: frame-ancestors 'self'
+
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

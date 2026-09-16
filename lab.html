@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cookie &amp; Frame Lab — Miro iframe lab</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.min.js",
+        "three/addons/": "./vendor/addons/"
+      }
+    }
+  </script>
+</head>
+<body class="lab">
+  <div id="root">
+    <header id="ctx-banner" class="banner">
+      <span class="dot"></span>
+      <div>
+        <strong id="ctx-label">Detecting context…</strong>
+        <div class="muted small" id="ctx-detail"></div>
+      </div>
+    </header>
+
+    <section class="viewer-block">
+      <div class="canvas-wrap"><canvas id="scene"></canvas></div>
+      <div class="viewer-meta small" id="viewer-meta">Loading viewer…</div>
+    </section>
+
+    <div class="cols">
+      <details class="card" open>
+        <summary><span class="num">1</span> Cookie write matrix</summary>
+        <div class="card-body">
+          <label class="field">
+            <span>Text to render in 3D</span>
+            <input id="text-input" type="text" maxlength="48" placeholder="dog" />
+          </label>
+          <p class="muted small">
+            Pick a write strategy. The value is read straight back — a refused write does not throw,
+            so read-back is the only honest signal.
+          </p>
+          <div class="table-wrap">
+            <table id="cookie-table">
+              <thead>
+                <tr><th>Strategy</th><th>Write</th><th>Readable</th><th>Value</th><th></th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="row-actions">
+            <button id="btn-reread">Re-read cookies</button>
+            <button id="btn-clear" class="danger">Clear all lab cookies</button>
+            <button id="btn-reload">Reload this surface</button>
+          </div>
+          <div class="note small" id="cookie-note"></div>
+        </div>
+      </details>
+
+      <details class="card" open>
+        <summary><span class="num">2</span> Is this context partitioned?</summary>
+        <div class="card-body">
+          <dl id="partition-report" class="kv"></dl>
+          <p class="muted small">
+            Open this same page in a normal tab and compare the partition id and the context stamp.
+            Different values mean the browser keeps a separate jar per top-level site, which is the
+            single fact that decides how session persistence has to be designed.
+          </p>
+        </div>
+      </details>
+
+      <details class="card" open>
+        <summary><span class="num">3</span> Authenticating from inside the board</summary>
+        <div class="card-body">
+          <div id="auth-state" class="auth-state">Not signed in.</div>
+          <div class="row-actions">
+            <button id="btn-login" class="primary">Sign in (opens a top-level tab)</button>
+            <button id="btn-logout" class="danger">Sign out</button>
+          </div>
+          <div class="row-actions">
+            <button id="btn-storage-access">Request storage access</button>
+            <button id="btn-recheck">Re-check what this frame can see</button>
+          </div>
+          <details class="sub">
+            <summary>Popup blocked, or no <code>window.opener</code>? Paste the token instead</summary>
+            <div class="row-actions">
+              <input id="token-input" type="text" placeholder="paste session token" />
+              <button id="btn-token-apply">Apply</button>
+            </div>
+          </details>
+          <div class="log" id="auth-log"></div>
+        </div>
+      </details>
+
+      <details class="card">
+        <summary><span class="num">4</span> Framing policy (frame-ancestors)</summary>
+        <div class="card-body">
+          <label class="field">
+            <span>Simulated policy</span>
+            <select id="policy-select"></select>
+          </label>
+          <p class="mono small" id="policy-header"></p>
+          <dl id="frame-report" class="kv"></dl>
+          <div class="row-actions">
+            <button id="btn-probe-blocked">Probe a host that refuses framing</button>
+            <button id="btn-probe-self">Probe this origin</button>
+          </div>
+          <div class="log" id="frame-log"></div>
+        </div>
+      </details>
+
+      <details class="card">
+        <summary><span class="num">5</span> Environment &amp; export</summary>
+        <div class="card-body">
+          <dl id="env-report" class="kv"></dl>
+          <div class="row-actions">
+            <button id="btn-open-tab">Open this lab in a new tab</button>
+            <button id="btn-open-modal">Open in a Miro modal</button>
+          </div>
+          <div class="row-actions">
+            <button id="btn-copy">Copy findings JSON</button>
+            <button id="btn-to-board">Write findings onto the board</button>
+          </div>
+          <p class="note small" id="export-note"></p>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <script type="module" src="./src/lab.js"></script>
+</body>
+</html>

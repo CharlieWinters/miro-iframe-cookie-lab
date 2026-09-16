@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Miro iframe lab — Cookie &amp; Frame Lab</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body class="entry">
+  <main>
+    <h1>Miro iframe lab — Cookie &amp; Frame Lab</h1>
+    <p class="muted">
+      This page is the app's <code>sdkUri</code>. Inside a board it only registers the
+      toolbar handler and opens the lab panel.
+    </p>
+    <p id="status" class="status">Initialising…</p>
+    <p><a href="./lab.html" id="direct-link">Open the lab directly (top-level tab)</a></p>
+  </main>
+
+  <script src="https://miro.com/app/static/sdk/v2/miro.js"></script>
+  <script>
+    const status = document.getElementById('status');
+
+    async function init() {
+      if (!window.miro || !window.miro.board) {
+        status.textContent =
+          'Miro SDK not available — you are viewing this page outside a board. Use the link below.';
+        status.classList.add('warn');
+        return;
+      }
+
+      // Toolbar icon → open the lab as a side panel.
+      await miro.board.ui.on('icon:click', async () => {
+        await miro.board.ui.openPanel({ url: 'lab.html?ctx=panel' });
+      });
+
+      // Custom action so the lab can also be reached from the board context menu.
+      try {
+        await miro.board.ui.on('custom:open-cookie-lab', async () => {
+          await miro.board.ui.openPanel({ url: 'lab.html?ctx=panel' });
+        });
+      } catch (e) {
+        /* custom action not declared in the manifest — ignore */
+      }
+
+      status.textContent = 'Ready. Click the app icon in the board toolbar to open the lab.';
+      status.classList.add('ok');
+    }
+
+    init().catch((err) => {
+      status.textContent = 'Init failed: ' + err.message;
+      status.classList.add('bad');
+    });
+  </script>
+</body>
+</html>

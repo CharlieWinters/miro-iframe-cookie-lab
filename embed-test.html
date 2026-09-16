@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Embedder harness — Cookie &amp; Frame Lab</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <style>
+    body.embedder { padding: 16px; background: #f4f5f7; }
+    .stage { display: grid; gap: 12px; grid-template-columns: 340px 1fr; align-items: start; }
+    .stage iframe { width: 100%; height: 720px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+    @media (max-width: 900px) { .stage { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body class="embedder">
+  <h1>Embedder harness</h1>
+  <p class="muted small">
+    Stands in for the Miro board: it frames <code>lab.html</code> twice, at panel width and at
+    modal width. Useful only when this page is served from a <em>different origin</em> than the lab
+    — otherwise the frames are same-origin and the browser applies no cross-site rules at all. The
+    lab's context banner tells you which case you are in.
+  </p>
+  <label class="field" style="max-width: 520px">
+    <span>Lab origin to frame</span>
+    <input id="origin" type="text" placeholder="https://charliewinters.github.io/miro-iframe-cookie-lab/" />
+  </label>
+  <div class="row-actions"><button id="go" class="primary">Load frames</button></div>
+  <div class="stage">
+    <iframe id="panel" title="panel width" allow="clipboard-write"></iframe>
+    <iframe id="modal" title="modal width" allow="clipboard-write"></iframe>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const input = document.getElementById('origin');
+    input.value = params.get('base') || new URL('./', location.href).href;
+    function load() {
+      const base = input.value.replace(/\/?$/, '/');
+      document.getElementById('panel').src = base + 'lab.html?ctx=panel';
+      document.getElementById('modal').src = base + 'lab.html?ctx=modal';
+    }
+    document.getElementById('go').addEventListener('click', load);
+    load();
+  </script>
+</body>
+</html>

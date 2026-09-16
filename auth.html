@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in — Miro iframe lab</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body class="auth">
+  <main class="auth-card">
+    <h1>the partner app sign in <span class="pill warn">demo</span></h1>
+    <p class="muted small">
+      This tab is <strong>top level</strong>, so it is a first-party context: an identity provider
+      will render here, and cookies written here behave normally. That is the whole reason the
+      board panel sends you out to a tab instead of collecting credentials itself.
+    </p>
+
+    <dl class="kv" id="auth-env"></dl>
+
+    <form id="login-form" novalidate>
+      <label class="field">
+        <span>User</span>
+        <input id="user" type="text" value="designer@partner.example" autocomplete="username" />
+      </label>
+      <label class="field">
+        <span>Password (not checked — this is a stub)</span>
+        <input id="password" type="password" value="demo" autocomplete="current-password" />
+      </label>
+      <button type="submit" class="primary" id="submit">Sign in and return to the board</button>
+    </form>
+
+    <div id="result" class="result" hidden>
+      <h2>Session issued</h2>
+      <dl class="kv" id="delivery"></dl>
+      <label class="field">
+        <span>Session token — paste this into the panel if the handshake did not arrive</span>
+        <textarea id="token" rows="4" readonly></textarea>
+      </label>
+      <div class="row-actions">
+        <button id="copy">Copy token</button>
+        <button id="close" class="primary">Close this tab</button>
+      </div>
+      <p class="muted small" id="closing"></p>
+    </div>
+
+    <p class="note small">
+      The token here is unsigned and issued client-side purely so the demo has something to pass
+      around. A real integration returns an opaque session reference or a signed assertion that the
+      panel's backend verifies — never a bearer credential minted in the browser.
+    </p>
+  </main>
+
+  <script type="module">
+    import * as bridge from './src/authbridge.js';
+    import * as cookies from './src/cookies.js';
+    import * as probes from './src/probes.js';
+
+    const params = new URLSearchParams(location.search);
+    const nonce = params.get('nonce');
+    const requestedReplyTo = params.get('replyTo');
+
+    // Only ever hand a session back to our own origin. A `replyTo` that points anywhere else is
+    // how a token-leak bug gets built, so it is rejected rather than trusted.
+    const replyTo = requestedReplyTo === location.origin ? location.origin : null;
+
+    const $ = (s) => document.querySelector(s);
+
+    function kv(dl, rows) {
+      dl.innerHTML = '';
+      for (const [k, v] of rows) {
+        const dt = document.createElement('dt');
+        dt.textContent = k;
+        const dd = document.createElement('dd');
+        dd.textContent = String(v);
+        dl.append(dt, dd);
+      }
+    }
+
+    const sandbox = probes.sandboxInfo();
+    kv($('#auth-env'), [
+      ['Context', window.top === window.self ? 'top-level (first-party)' : 'framed — the popup was sandboxed into a frame'],
+      ['Origin', location.origin + (sandbox.opaqueOrigin ? '  ⚠ opaque' : '')],
+      ['window.opener present', String(!!window.opener)],
+      ['Login nonce', nonce ? nonce.slice(0, 8) + '…' : 'missing — opened directly?'],
+      ['Reply target', replyTo || (requestedReplyTo ? `refused: ${requestedReplyTo}` : 'none supplied')],
+      ['Cookies enabled', String(navigator.cookieEnabled)],
+    ]);
+
+    $('#login-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const user = $('#user').value.trim() || 'demo-user';
+      const { token, claims } = bridge.mintToken(user);
+
+      // First-party writes: these should succeed in every browser.
+      const wrote = [];
+      for (const spec of cookies.SESSION_COOKIES) {
+        const r = cookies.write(spec, token);
+        if (r.persisted) wrote.push(`${spec.name} (${spec.label})`);
+      }
+
+      let delivery = { delivered: false, results: [], broadcast: { ok: false, error: 'no reply target' } };
+      if (replyTo && (window.opener || window.parent !== window)) {
+        delivery = bridge.reply({ nonce, replyTo, user, token, claims, wroteCookies: wrote });
+      }
+
+      $('#token').value = token;
+      $('#result').hidden = false;
+      kv($('#delivery'), [
+        ['User', user],
+        ['Checksum', bridge.pairingCode(token)],
+        ['Cookies written here (first-party)', wrote.length ? wrote.join(' · ') : 'none persisted — unexpected at top level'],
+        ['postMessage', delivery.results.length ? delivery.results.map((r) => `${r.target}: ${r.ok ? 'sent' : 'failed — ' + r.error}`).join(' · ') : 'no opener to reply to'],
+        ['BroadcastChannel', delivery.broadcast.ok ? delivery.broadcast.note : 'not sent — ' + delivery.broadcast.error],
+      ]);
+
+      if (delivery.delivered) {
+        let left = 4;
+        $('#closing').textContent = `Handshake sent. Closing in ${left}s…`;
+        const t = setInterval(() => {
+          left -= 1;
+          if (left <= 0) {
+            clearInterval(t);
+            window.close();
+            $('#closing').textContent = 'If this tab is still open, the browser refused window.close(). Close it manually.';
+          } else {
+            $('#closing').textContent = `Handshake sent. Closing in ${left}s…`;
+          }
+        }, 1000);
+      } else {
+        $('#closing').textContent = 'No window to hand the session back to — copy the token into the panel.';
+      }
+    });
+
+    $('#copy').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText($('#token').value);
+        $('#closing').textContent = 'Token copied.';
+      } catch (e) {
+        $('#token').select();
+        $('#closing').textContent = 'Clipboard blocked — the token is selected, copy it manually.';
+      }
+    });
+
+    $('#close').addEventListener('click', () => window.close());
+  </script>
+</body>
+</html>
